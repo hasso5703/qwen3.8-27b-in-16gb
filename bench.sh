@@ -23,10 +23,10 @@ label = sys.argv[1]
 r = json.load(sys.stdin)
 t = r.get("timings") or {}
 if t:
-    print(f"  {label:<24} prefill {t.get(\"prompt_n\",0):>6} tok @ {t.get(\"prompt_per_second\",0):7.1f} tok/s | generation {t.get(\"predicted_n\",0):>4} tok @ {t.get(\"predicted_per_second\",0):5.1f} tok/s")
+    print(f"  {label:<24} prefill {t.get("prompt_n",0):>6} tok @ {t.get("prompt_per_second",0):7.1f} tok/s | generation {t.get("predicted_n",0):>4} tok @ {t.get("predicted_per_second",0):5.1f} tok/s")
 else:
     u = r.get("usage") or {}
-    print(f"  {label:<24} {u.get(\"completion_tokens\",\"?\")} tokens generated (server did not return timings)")
+    print(f"  {label:<24} {u.get("completion_tokens","?")} tokens generated (server did not return timings)")
 ' "$1"
 }
 
