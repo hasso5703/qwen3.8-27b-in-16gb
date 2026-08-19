@@ -81,13 +81,17 @@ step "1/7 Preflight checks"
 [[ "$(uname -s)/$(uname -m)" == "Linux/x86_64" ]] || die "Linux x86_64 only (got: $(uname -s)/$(uname -m)). For other platforms, build llama.cpp yourself — see docs/WHY.md."
 grep -qi microsoft /proc/version 2>/dev/null && warn "WSL2 detected: CUDA works there, but this setup is only validated on bare Linux (and WSL needs systemd=true in /etc/wsl.conf for the service)."
 need curl curl; need tar tar; need sha256sum coreutils; need awk gawk
-command -v nvidia-smi >/dev/null 2>&1 || die "nvidia-smi not found — install the NVIDIA proprietary driver (>= ${MIN_DRIVER_MAJOR}) first. On Ubuntu: sudo ubuntu-drivers install"
+command -v nvidia-smi >/dev/null 2>&1 || die "nvidia-smi not found — install the NVIDIA proprietary driver (>= ${MIN_DRIVER_VERSION}) first. On Ubuntu: sudo ubuntu-drivers install"
 
 DRIVER="$(nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -1)" \
   || die "nvidia-smi exists but fails — usually a driver/library mismatch after an update. Fix: reboot. If it persists: reinstall the driver."
+# Full-version compare (sort -V): the floor is the CUDA 12.x minor-version-
+# compatibility minimum from NVIDIA's compatibility table, not a marketing cutoff.
+if [[ "$(printf '%s\n' "$MIN_DRIVER_VERSION" "$DRIVER" | sort -V | head -1)" != "$MIN_DRIVER_VERSION" ]]; then
+  die "NVIDIA driver $DRIVER is too old: CUDA 12 apps need >= ${MIN_DRIVER_VERSION}. On Ubuntu: sudo ubuntu-drivers install"
+fi
 DRIVER_MAJOR="${DRIVER%%.*}"
-(( DRIVER_MAJOR >= MIN_DRIVER_MAJOR )) || die "NVIDIA driver $DRIVER is too old (need >= ${MIN_DRIVER_MAJOR}). On Ubuntu: sudo ubuntu-drivers install --gpgpu"
-(( DRIVER_MAJOR >= RECOMMENDED_DRIVER_MAJOR )) || warn "driver $DRIVER works but this config is validated on >= ${RECOMMENDED_DRIVER_MAJOR}.x"
+(( DRIVER_MAJOR >= RECOMMENDED_DRIVER_MAJOR )) || warn "driver $DRIVER works (CUDA 12 minor-version compatibility), but full CUDA 12.8 support starts at ${RECOMMENDED_DRIVER_MAJOR}.26 — validated on 595.x"
 
 # Pick the first 16 GB-class GPU (multi-GPU boxes: we pin the service to it).
 # CSV fields are comma-separated; GPU names contain spaces — split on commas ONLY.

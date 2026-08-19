@@ -37,7 +37,8 @@ completed steps are skipped, config converges.
 - Linux x86_64 with systemd (WSL2: works, not validated)
 - NVIDIA GPU with **16 GB** VRAM — RTX 4070 Ti SUPER, 4080 (Super), 5070 Ti, 5080…
   (prebuilt kernels for compute capability 7.5 / 8.6 / 8.9 / 12.0)
-- NVIDIA driver ≥ 550 (validated on 595.x) — **no CUDA toolkit needed**:
+- NVIDIA driver ≥ 525.60.13 — any CUDA 12-capable driver (Ubuntu 22.04's default
+  535 works; validated on 595.x) — **no CUDA toolkit needed**:
   the CUDA runtime is statically linked into the binary
 - ~14 GiB of free disk
 
