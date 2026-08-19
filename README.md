@@ -65,7 +65,11 @@ re-runs (`~/.local/share/qwen3.8-27b-in-16gb/config.env`); explicit env wins.
 | `CTX` | auto | context size; auto picks headless (145408) or desktop (92160) |
 | `PARALLEL` | `2` | request slots — context is shared, each slot costs ~250 MiB |
 | `REASONING` | `medium` | `low` / `medium` / `high` |
+| `API_KEY` | auto | when `HOST≠127.0.0.1`: auto-generated & enforced; `none` = deliberately open; `<value>` = use yours |
 | `DATA_DIR` | `~/.local/share/qwen3.8-27b-in-16gb` | binary + model location |
+
+Already have the GGUF? Drop (or hardlink) it into `DATA_DIR` before installing —
+the installer verifies its SHA256 instead of re-downloading 12 GiB.
 
 Flags: `--no-service` (no systemd/sudo, foreground `run.sh`), `--no-start`
 (install + enable, start later), `--help`.

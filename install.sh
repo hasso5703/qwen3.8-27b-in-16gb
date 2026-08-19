@@ -42,6 +42,8 @@ Env overrides (defaults are the validated, pinned configuration):
   CTX=<tokens>         context size (default: auto — 145408 headless / 92160 desktop)
   PARALLEL=2           request slots (context is SHARED between slots)
   REASONING=medium     low | medium | high
+  API_KEY=none         opt OUT of the auto-generated key when HOST != 127.0.0.1
+                       (open server — your responsibility); or API_KEY=<value>
   DATA_DIR=<path>      where binary+model live (needs ~14 GiB)
 HLP
       exit 0 ;;
@@ -56,13 +58,14 @@ die()  { printf '\n\033[1;31mERROR:\033[0m %s\n' "$*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "'$1' is required but not installed. Install it (usually: sudo apt install $2) and re-run."; }
 
 # ── Converging config: explicit env wins > saved config > defaults ───────────
-U_PORT="${PORT:-}"; U_HOST="${HOST:-}"; U_CTX="${CTX:-}"; U_PAR="${PARALLEL:-}"; U_REAS="${REASONING:-}"
+U_PORT="${PORT:-}"; U_HOST="${HOST:-}"; U_CTX="${CTX:-}"; U_PAR="${PARALLEL:-}"; U_REAS="${REASONING:-}"; U_KEY="${API_KEY:-}"
 [[ -f "$DATA_DIR/config.env" ]] && source "$DATA_DIR/config.env"
 PORT="${U_PORT:-${PORT:-8001}}"
 HOST="${U_HOST:-${HOST:-127.0.0.1}}"
 CTX="${U_CTX:-${CTX:-}}"
 PARALLEL="${U_PAR:-${PARALLEL:-2}}"
 REASONING="${U_REAS:-${REASONING:-medium}}"
+API_KEY="${U_KEY:-${API_KEY:-}}"
 case "$REASONING" in low|medium|high) ;; minimal) REASONING=low ;; *) die "REASONING must be low, medium or high (got '$REASONING')." ;; esac
 
 # ── Pinned versions: local checkout wins, else fetch from the repo ───────────
@@ -171,17 +174,31 @@ MODEL_URL="https://huggingface.co/${MODEL_REPO}/resolve/${MODEL_REVISION}/${MODE
 if [[ -f "$MODEL_PATH.verified" && -f "$MODEL_PATH" ]]; then
   echo "already downloaded and verified — skipping"
 else
-  [[ -n "${HF_HUB_OFFLINE:-}" ]] && warn "HF_HUB_OFFLINE is set — irrelevant here (we download directly), but known to break other tools' installs."
-  curl -fL --retry 10 --retry-all-errors -C - -o "$MODEL_PATH.part" "$MODEL_URL" \
-    || die "model download failed. Causes: no internet; Hugging Face outage or rate-limit (re-run: it resumes); disk full. URL: $MODEL_URL"
-  echo "verifying SHA256 (takes a minute — this is the point of the repo)"
-  if ! echo "$MODEL_SHA256  $MODEL_PATH.part" | sha256sum -c - >/dev/null 2>&1; then
-    rm -f "$MODEL_PATH.part"
-    die "model checksum MISMATCH — the partial file was corrupted. Deleted it; re-run to download again."
+  # Pre-seeded file (copied/hardlinked from an existing HF cache)? Verify it
+  # instead of re-downloading 12 GiB.
+  if [[ -f "$MODEL_PATH" ]]; then
+    echo "found an existing model file — verifying its SHA256 instead of downloading"
+    if echo "$MODEL_SHA256  $MODEL_PATH" | sha256sum -c - >/dev/null 2>&1; then
+      touch "$MODEL_PATH.verified"
+      echo "verified: $MODEL_SHA256"
+    else
+      warn "existing file fails the checksum — deleting it and downloading fresh"
+      rm -f "$MODEL_PATH"
+    fi
   fi
-  mv "$MODEL_PATH.part" "$MODEL_PATH"
-  touch "$MODEL_PATH.verified"
-  echo "verified: $MODEL_SHA256"
+  if [[ ! -f "$MODEL_PATH.verified" ]]; then
+    [[ -n "${HF_HUB_OFFLINE:-}" ]] && warn "HF_HUB_OFFLINE is set — irrelevant here (we download directly), but known to break other tools' installs."
+    curl -fL --retry 10 --retry-all-errors -C - -o "$MODEL_PATH.part" "$MODEL_URL" \
+      || die "model download failed. Causes: no internet; Hugging Face outage or rate-limit (re-run: it resumes); disk full. URL: $MODEL_URL"
+    echo "verifying SHA256 (takes a minute — this is the point of the repo)"
+    if ! echo "$MODEL_SHA256  $MODEL_PATH.part" | sha256sum -c - >/dev/null 2>&1; then
+      rm -f "$MODEL_PATH.part"
+      die "model checksum MISMATCH — the partial file was corrupted. Deleted it; re-run to download again."
+    fi
+    mv "$MODEL_PATH.part" "$MODEL_PATH"
+    touch "$MODEL_PATH.verified"
+    echo "verified: $MODEL_SHA256"
+  fi
 fi
 
 step "4/7 Chat template + saved config"
@@ -192,15 +209,29 @@ else
   curl -fsSL -o "$TEMPLATE_PATH" "$RAW_BASE/templates/qwen3.8-ridge.jinja" || die "template download failed (no internet?)"
 fi
 
-# API key: mandatory when exposed beyond localhost, off for pure-local installs.
-API_KEY_ARGS=(); API_KEY=""
+# API key policy when exposed beyond localhost:
+#   API_KEY unset   -> generate & enforce one (safe default)
+#   API_KEY=none    -> deliberately OPEN server (loud warning — for endpoints you
+#                      consciously expose behind a tunnel/VPN or as a public service)
+#   API_KEY=<value> -> enforce that key (stored in api.key, mode 600)
+API_KEY_ARGS=(); OPEN_SERVER=0
 if [[ "$HOST" != "127.0.0.1" && "$HOST" != "localhost" ]]; then
-  if [[ ! -s "$DATA_DIR/api.key" ]]; then
-    head -c 24 /dev/urandom | base64 | tr -d '/+=' > "$DATA_DIR/api.key"; chmod 600 "$DATA_DIR/api.key"
+  if [[ "$API_KEY" == "none" ]]; then
+    OPEN_SERVER=1; API_KEY=""
+    rm -f "$DATA_DIR/api.key"
+    warn "API_KEY=none with HOST=$HOST: the server is OPEN — anyone who can reach port ${PORT} can use your GPU. You asked for it, you got it."
+  else
+    if [[ -n "$API_KEY" ]]; then
+      printf '%s' "$API_KEY" > "$DATA_DIR/api.key"; chmod 600 "$DATA_DIR/api.key"
+    elif [[ ! -s "$DATA_DIR/api.key" ]]; then
+      head -c 24 /dev/urandom | base64 | tr -d '/+=' > "$DATA_DIR/api.key"; chmod 600 "$DATA_DIR/api.key"
+    fi
+    API_KEY="$(cat "$DATA_DIR/api.key")"
+    API_KEY_ARGS=(--api-key "$API_KEY")
+    warn "HOST=$HOST exposes the server beyond this machine → API key enforced (in $DATA_DIR/api.key, mode 600). Opt out with API_KEY=none."
   fi
-  API_KEY="$(cat "$DATA_DIR/api.key")"
-  API_KEY_ARGS=(--api-key "$API_KEY")
-  warn "HOST=$HOST exposes the server beyond this machine → API key enforced (kept in $DATA_DIR/api.key, mode 600)."
+else
+  API_KEY=""
 fi
 
 cat > "$DATA_DIR/config.env" <<EOF
@@ -211,6 +242,7 @@ CTX=$CTX
 PARALLEL=$PARALLEL
 REASONING=$REASONING
 EOF
+(( OPEN_SERVER )) && echo "API_KEY=none" >> "$DATA_DIR/config.env"
 
 # Flag rationale: docs/WHY.md. The short version:
 #   --fit off            manual VRAM layout — auto-fit undoes the sizing
@@ -276,8 +308,10 @@ Wants=network-online.target
 Type=simple
 User=$(id -un)
 Group=$(id -gn)
-Environment=CUDA_VISIBLE_DEVICES=${GPU_INDEX}
-ExecStart=$(printf '%q ' "${SERVER_CMD[@]}")
+# ExecStart delegates to the generated run.sh: the command line contains JSON
+# arguments, and systemd's ExecStart quoting rules are NOT bash's — rendering
+# the command inline once produced \\{...\\} garbage. One source of truth instead.
+ExecStart="$DATA_DIR/run.sh"
 Restart=on-failure
 RestartSec=5
 TimeoutStartSec=300
@@ -299,9 +333,12 @@ step "7/7 Starting (model load ≈ 1-3 min depending on disk)"
 HEALTH_URL="http://127.0.0.1:${PORT}/health"
 for i in $(seq 1 120); do
   curl -fsS -m 2 "$HEALTH_URL" >/dev/null 2>&1 && break
-  if [[ "$(systemctl is-active "$SERVICE_NAME" || true)" == "failed" ]]; then
+  # A crash-looping service shows as "activating (auto-restart)", never "failed" —
+  # watch the restart counter instead of waiting the full timeout for nothing.
+  NRESTARTS="$(systemctl show -p NRestarts --value "$SERVICE_NAME" 2>/dev/null || echo 0)"
+  if [[ "$(systemctl is-active "$SERVICE_NAME" || true)" == "failed" || "${NRESTARTS:-0}" -ge 2 ]]; then
     journalctl -u "$SERVICE_NAME" --no-pager | tail -25
-    die "service failed during startup — logs above. Most common on 16 GB: something else grabbed VRAM (close desktop apps / other AI servers, or lower CTX — see docs/WHY.md)."
+    die "service is crash-looping — logs above. Most common on 16 GB: something else grabbed VRAM (close desktop apps / other AI servers, or lower CTX — see docs/WHY.md)."
   fi
   (( i % 20 == 0 )) && echo "  still loading... ($(( i * 3 ))s)"
   sleep 3
