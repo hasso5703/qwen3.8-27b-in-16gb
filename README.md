@@ -75,6 +75,7 @@ Flags: `--no-service` (no systemd/sudo, foreground `run.sh`), `--no-start`
 systemctl status qwen3.8-27b        # is it up?
 journalctl -u qwen3.8-27b -f        # live logs
 sudo systemctl restart qwen3.8-27b  # after changing config.env, re-run install.sh instead
+./bench.sh                          # measure your tok/s
 nvidia-smi                          # VRAM reality check
 ```
 
