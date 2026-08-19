@@ -13,11 +13,12 @@ if systemctl list-unit-files "${SERVICE_NAME}.service" >/dev/null 2>&1; then
 fi
 
 rm -f "$HOME/.local/bin/claude-qwen"
-rm -rf "$DATA_DIR/bin" "$DATA_DIR/templates"
+rm -rf "${DATA_DIR:?}/bin" "${DATA_DIR:?}/templates"
+rm -f "${DATA_DIR:?}/config.env" "${DATA_DIR:?}/run.sh" "${DATA_DIR:?}/api.key"
 
 if [[ -n "${PURGE:-}" ]]; then
     echo "==> PURGE=1 — deleting the model"
-    rm -rf "$DATA_DIR"
+    rm -rf "${DATA_DIR:?}"
 else
     echo "==> Kept the model in $DATA_DIR (12 GiB). Re-run with PURGE=1 to delete it."
 fi
