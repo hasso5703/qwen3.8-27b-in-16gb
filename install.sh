@@ -346,14 +346,18 @@ for i in $(seq 1 120); do
 done
 echo "health OK — running a real generation as smoke test"
 AUTH_HDR=(); [[ -n "$API_KEY" ]] && AUTH_HDR=(-H "Authorization: Bearer $API_KEY")
-SMOKE="$(curl -fsS -m 300 "http://127.0.0.1:${PORT}/v1/chat/completions" "${AUTH_HDR[@]}" \
+SMOKE_JSON="$(curl -fsS -m 300 "http://127.0.0.1:${PORT}/v1/chat/completions" "${AUTH_HDR[@]}" \
   -H 'Content-Type: application/json' \
-  -d '{"messages":[{"role":"user","content":"Reply with exactly: READY"}],"max_tokens":600}' \
-  | { command -v python3 >/dev/null && python3 -c 'import json,sys
+  -d '{"messages":[{"role":"user","content":"Reply with exactly: READY"}],"max_tokens":600}')" || SMOKE_JSON=""
+if command -v python3 >/dev/null 2>&1; then
+  SMOKE="$(printf '%s' "$SMOKE_JSON" | python3 -c 'import json,sys
 try:
   m=json.load(sys.stdin)["choices"][0]["message"]
   print("OK" if (m.get("content") or m.get("reasoning_content") or "").strip() else "EMPTY")
-except Exception as e: print(f"FAIL:{e}")' || grep -q '"content"' && echo OK || echo FAIL; })"
+except Exception as e: print(f"FAIL:{e}")')"
+else
+  printf '%s' "$SMOKE_JSON" | grep -q '"content"' && SMOKE=OK || SMOKE=FAIL
+fi
 [[ "$SMOKE" == "OK" ]] || die "server is up but the smoke generation failed ($SMOKE). Check: journalctl -u $SERVICE_NAME -n 50"
 
 VRAM_AFTER="$(nvidia-smi -i "$GPU_INDEX" --query-gpu=memory.used --format=csv,noheader,nounits)"
