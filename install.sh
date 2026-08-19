@@ -240,6 +240,9 @@ export ANTHROPIC_DEFAULT_HAIKU_MODEL="${MODEL_REPO}"
 export CLAUDE_CODE_SUBAGENT_MODEL="${MODEL_REPO}"
 # Tell Claude Code the REAL context size so it compacts before overflowing (400s otherwise)
 export CLAUDE_CODE_MAX_CONTEXT_TOKENS=$(( CTX - 4096 ))
+# Raise the per-turn output budget: reasoning tokens count against it, and the
+# server itself has no cap (llama-server default --n-predict -1 = unlimited)
+export CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
 # A 16 GB GPU thinks before it speaks — don't let client watchdogs kill long turns
 export API_TIMEOUT_MS=3600000
 export CLAUDE_BYTE_STREAM_IDLE_TIMEOUT_MS=1800000
