@@ -235,13 +235,15 @@ export ANTHROPIC_BASE_URL="http://127.0.0.1:${PORT}"
 export ANTHROPIC_AUTH_TOKEN="${API_KEY:-local}"
 export ANTHROPIC_API_KEY=""
 export ANTHROPIC_MODEL="${MODEL_REPO}"
-export ANTHROPIC_SMALL_FAST_MODEL="${MODEL_REPO}"
 export ANTHROPIC_DEFAULT_HAIKU_MODEL="${MODEL_REPO}"
 export CLAUDE_CODE_SUBAGENT_MODEL="${MODEL_REPO}"
-# Tell Claude Code the REAL context size so it compacts before overflowing (400s otherwise)
+# Tell Claude Code the REAL context size so it compacts before overflowing
+# (documented; margin because client-side token counting is approximate)
 export CLAUDE_CODE_MAX_CONTEXT_TOKENS=$(( CTX - 4096 ))
-# Raise the per-turn output budget: reasoning tokens count against it, and the
-# server itself has no cap (llama-server default --n-predict -1 = unlimited)
+# Per-request output budget (reasoning tokens count against it; the server has
+# no cap of its own: llama-server --n-predict defaults to unlimited).
+# Undocumented but verified by request capture on Claude Code 2.1.235:
+# without it max_tokens=32000 is sent, with it the value below is sent.
 export CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
 # A 16 GB GPU thinks before it speaks — don't let client watchdogs kill long turns
 export API_TIMEOUT_MS=3600000

@@ -90,9 +90,11 @@ timeouts (VS Code Copilot currently has no such knob — known limitation).
 **Answers cut mid-sentence (`finish_reason: "length"`).** The server has NO
 output cap (`--n-predict` defaults to unlimited) — the limit is the
 `max_tokens` YOUR CLIENT sends with each request, and reasoning tokens count
-against it. `claude-qwen` sets `CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000`; for your
-own clients, send a generous `max_tokens` (the Anthropic `/v1/messages` API
-makes the field mandatory — a small hardcoded value there is the usual culprit).
+against it. `claude-qwen` sets `CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000`
+(undocumented but verified by request capture on Claude Code 2.1.235 — the
+default it sends otherwise is 32000). For your own clients, send a generous
+`max_tokens` (the Anthropic `/v1/messages` API makes the field mandatory — a
+small hardcoded value there is the usual culprit).
 
 **HTTP 400 mid-session in Claude Code.** The context is 145k/92k, not the 200k
 Claude Code assumes for unknown models. `claude-qwen` sets
