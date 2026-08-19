@@ -1,0 +1,72 @@
+# Builds the pinned llama.cpp commit with the flags this repo depends on
+# (GGML_CUDA_FA_ALL_QUANTS for K q8_0 / V q4_0 flash-attn — NOT enabled in
+# upstream's prebuilt binaries) and publishes it as a GitHub release asset.
+#
+# Run manually (workflow_dispatch) after bumping LLAMACPP_COMMIT in versions.env.
+name: build-llamacpp
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write   # create the release
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04   # old glibc (2.35) so the binary runs on most distros
+    timeout-minutes: 300    # FA_ALL_QUANTS multiplies the kernel count — builds are LONG
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Load pins
+        run: cat versions.env >> "$GITHUB_ENV"
+
+      - name: Free disk space (CUDA toolkit is huge)
+        run: sudo rm -rf /usr/local/lib/android /opt/hostedtoolcache/CodeQL /usr/share/dotnet
+
+      - name: Install CUDA toolkit 12.8 (sm_120 / RTX 50xx support)
+        run: |
+          wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.1-1_all.deb
+          sudo dpkg -i cuda-keyring_1.1-1_all.deb
+          sudo apt-get update -q
+          sudo apt-get install -y -q cuda-toolkit-12-8 cmake ninja-build
+          echo "/usr/local/cuda-12.8/bin" >> "$GITHUB_PATH"
+
+      - name: Checkout llama.cpp at the pinned commit
+        run: |
+          git clone https://github.com/ggml-org/llama.cpp
+          cd llama.cpp
+          git checkout "$LLAMACPP_COMMIT"
+
+      - name: Build (static CUDA runtime — users only need the driver)
+        run: |
+          cd llama.cpp
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DGGML_CUDA=ON \
+            -DGGML_CUDA_FA_ALL_QUANTS=ON \
+            -DGGML_NATIVE=OFF \
+            -DCMAKE_CUDA_ARCHITECTURES="75;86;89;120" \
+            -DCMAKE_CUDA_RUNTIME_LIBRARY=Static \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DLLAMA_CURL=OFF
+          cmake --build build --target llama-server -j "$(nproc)"
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp llama.cpp/build/bin/llama-server dist/
+          cp llama.cpp/LICENSE dist/LICENSE.llama.cpp
+          TGZ="llama-server-linux-x64-cuda-${LLAMACPP_SHORT}.tar.gz"
+          tar -czf "$TGZ" -C dist .
+          sha256sum "$TGZ" > "$TGZ.sha256"
+
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$BINARY_RELEASE_TAG" \
+            --title "llama.cpp $LLAMACPP_SHORT (CUDA, FA_ALL_QUANTS, static cudart)" \
+            --notes "Pinned build of ggml-org/llama.cpp @ $LLAMACPP_COMMIT for archs 75/86/89/120 (RTX 20xx/30xx/40xx/50xx). CUDA runtime statically linked: only the NVIDIA driver is required on the host." \
+            llama-server-linux-x64-cuda-"$LLAMACPP_SHORT".tar.gz \
+            llama-server-linux-x64-cuda-"$LLAMACPP_SHORT".tar.gz.sha256
